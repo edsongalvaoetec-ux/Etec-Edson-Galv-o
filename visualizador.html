@@ -5,94 +5,206 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Painel de inscrições</title>
+
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
 <style>
 body {
-  font-family: Arial, sans-serif;
-  max-width: 700px;
-  margin: 40px auto;
-  padding: 20px;
+    font-family: Arial, sans-serif;
+    max-width: 700px;
+    margin: 40px auto;
+    padding: 20px;
 }
+
 input {
-  width: 100%;
-  padding: 12px;
-  box-sizing: border-box;
+    width: 100%;
+    padding: 12px;
+    box-sizing: border-box;
 }
+
 button {
-  padding: 12px 18px;
-  margin-top: 12px;
-  cursor: pointer;
+    padding: 12px 18px;
+    margin-top: 12px;
+    cursor: pointer;
 }
+
 video {
-  width: 100%;
-  margin-top: 20px;
-  background: #111;
+    width: 100%;
+    margin-top: 20px;
+    background: #111;
+    min-height: 250px;
 }
 </style>
 </head>
+
 <body>
 
 <h2>Painel de inscrições</h2>
+
 <p id="status">Iniciando painel...</p>
 
 <h3>Link para confirmação</h3>
-<input id="link" readonly placeholder="Gerando link...">
+
+<input id="link" readonly>
+
 <button id="copiar" disabled>Copiar link</button>
 
 <h3>Câmera recebida</h3>
-<video id="video" autoplay playsinline controls></video>
+
+<video id="video" autoplay playsinline muted></video>
 
 <script>
+
 const statusEl = document.getElementById("status");
 const linkEl = document.getElementById("link");
 const copiarBtn = document.getElementById("copiar");
 const video = document.getElementById("video");
 
-const peer = new Peer();
+// ID da sala do convite já enviado
+const ROOM_ID = "d89230d3-1ad8-4adb-973f-7ffc2230e637";
+
+let chamadaAtual = null;
+
+const peer = new Peer(ROOM_ID);
 
 peer.on("open", function(id) {
-  const convite = new URL("camera.html", location.href);
-  convite.searchParams.set("room", id);
 
-  linkEl.value = convite.href;
-  copiarBtn.disabled = false;
-  statusEl.textContent = "Painel pronto. Aguardando confirmação.";
+    const convite = new URL("camera.html", location.href);
+    convite.searchParams.set("room", id);
+
+    linkEl.value = convite.href;
+
+    copiarBtn.disabled = false;
+
+    statusEl.textContent =
+        "Painel conectado. Aguardando confirmação.";
+
+    console.log("Painel conectado:", id);
 });
 
 copiarBtn.onclick = async function() {
-  try {
-    await navigator.clipboard.writeText(linkEl.value);
+
+    try {
+        await navigator.clipboard.writeText(linkEl.value);
+    } catch (e) {
+        linkEl.select();
+        document.execCommand("copy");
+    }
+
     statusEl.textContent = "Link copiado!";
-  } catch (e) {
-    linkEl.select();
-    document.execCommand("copy");
-    statusEl.textContent = "Link copiado!";
-  }
 };
 
 peer.on("call", function(chamada) {
-  statusEl.textContent = "Recebendo transmissão...";
-  chamada.answer();
 
-  chamada.on("stream", function(stream) {
-    video.srcObject = stream;
-    video.play().catch(() => {});
-    statusEl.textContent = "Câmera recebida ao vivo.";
-  });
+    console.log("Chamada recebida:", chamada.peer);
 
-  chamada.on("close", function() {
-    video.srcObject = null;
-    statusEl.textContent = "Transmissão encerrada.";
-  });
+    if (chamadaAtual) {
+        chamadaAtual.close();
+    }
 
-  chamada.on("error", function() {
-    statusEl.textContent = "Erro durante a transmissão.";
-  });
+    chamadaAtual = chamada;
+
+    statusEl.textContent = "Recebendo transmissão...";
+
+    chamada.on("stream", function(stream) {
+
+        console.log("Stream recebido:", stream);
+
+        video.srcObject = stream;
+
+        video.onloadedmetadata = function() {
+
+            console.log(
+                "Dimensões:",
+                video.videoWidth,
+                video.videoHeight
+            );
+
+            video.play().then(function() {
+
+                statusEl.textContent =
+                    "Câmera recebida ao vivo.";
+
+            }).catch(function(erro) {
+
+                console.error("Erro ao reproduzir:", erro);
+
+                statusEl.textContent =
+                    "Transmissão recebida. Verifique a reprodução.";
+            });
+        };
+
+        const tracks = stream.getVideoTracks();
+
+        tracks.forEach(function(track) {
+
+            track.onunmute = function() {
+                console.log("Quadros de vídeo ativos.");
+                statusEl.textContent =
+                    "Câmera recebida ao vivo.";
+            };
+
+            track.onmute = function() {
+                statusEl.textContent =
+                    "Aguardando quadros da câmera...";
+            };
+
+            track.onended = function() {
+                statusEl.textContent =
+                    "Transmissão encerrada.";
+            };
+        });
+
+        setTimeout(function() {
+
+            if (video.videoWidth === 0) {
+
+                statusEl.textContent =
+                    "Conexão estabelecida, mas sem imagem. Verifique a rede e a câmera.";
+
+                console.warn("Nenhum quadro recebido.");
+            }
+
+        }, 12000);
+
+    });
+
+    chamada.on("close", function() {
+
+        video.srcObject = null;
+
+        statusEl.textContent =
+            "Transmissão encerrada.";
+    });
+
+    chamada.on("error", function(erro) {
+
+        console.error("Erro na transmissão:", erro);
+
+        statusEl.textContent =
+            "Erro durante a transmissão.";
+    });
+
+    chamada.answer();
+
+});
+
+peer.on("disconnected", function() {
+
+    statusEl.textContent =
+        "Reconectando ao servidor...";
+
+    peer.reconnect();
 });
 
 peer.on("error", function(erro) {
-  statusEl.textContent = "Erro no painel: " + erro.type;
+
+    console.error("Erro PeerJS:", erro);
+
+    statusEl.textContent =
+        "Erro no painel: " + erro.type;
 });
+
 </script>
 
 </body>
