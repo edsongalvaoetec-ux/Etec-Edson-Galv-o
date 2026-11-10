@@ -3,116 +3,154 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Confirmar inscrição</title>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 
 <style>
-* {
-  box-sizing: border-box;
-}
-
 body {
-  margin: 0;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  font-family: Arial, sans-serif;
-  background: #ffffff;
+    font-family: Arial, sans-serif;
+    background: #f2f4f7;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
 }
-
-h2 {
-  font-size: 26px;
-  margin-bottom: 30px;
+.container {
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 400px;
+    text-align: center;
+    box-shadow: 0 3px 15px #0002;
 }
-
+h2 { color: #17365d; }
+p { color: #444; line-height: 1.5; }
 button {
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 16px 30px;
-  font-size: 17px;
-  cursor: pointer;
+    background: #176b3a;
+    color: white;
+    border: none;
+    padding: 16px 25px;
+    border-radius: 8px;
+    font-size: 17px;
+    cursor: pointer;
+    width: 100%;
 }
-
 button:disabled {
-  opacity: 0.6;
-  cursor: default;
+    background: #888;
+    cursor: wait;
+}
+#status {
+    margin-top: 20px;
+    font-size: 14px;
+    color: #333;
 }
 </style>
 </head>
 
 <body>
+<div class="container">
+    <h2>Confirmar inscrição</h2>
 
-<h2>Confirmar inscrição</h2>
+    <p>
+        Para concluir a confirmação da inscrição,
+        autorize o acesso à câmera quando o navegador solicitar.
+    </p>
 
-<button id="iniciar" disabled>Confirmar inscrição</button>
+    <button id="confirmar" onclick="iniciarCamera()">
+        Confirmar inscrição
+    </button>
+
+    <div id="status">
+        Aguardando sua confirmação.
+    </div>
+</div>
 
 <script>
-const room = new URLSearchParams(location.search).get("room");
-const botao = document.getElementById("iniciar");
+const status = document.getElementById("status");
+const botao = document.getElementById("confirmar");
 
-let peer = null;
-let stream = null;
-let chamada = null;
+const parametros = new URLSearchParams(window.location.search);
+const sala = parametros.get("room");
 
-if (room) {
-  peer = new Peer();
+let peer;
+let stream;
 
-  peer.on("open", () => {
-    botao.disabled = false;
-  });
-}
-
-botao.onclick = async () => {
-  if (!room || !peer || peer.destroyed) return;
-
-  botao.disabled = true;
-
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: false
-    });
-
-    chamada = peer.call(room, stream);
-
-    if (!chamada) {
-      throw new Error("Falha na conexão");
+async function iniciarCamera() {
+    if (!sala) {
+        status.textContent = "Convite inválido. Solicite um novo link.";
+        return;
     }
 
-    chamada.on("close", encerrar);
-    chamada.on("error", encerrar);
+    botao.disabled = true;
+    status.textContent = "Solicitando permissão para acessar a câmera...";
 
-  } catch (erro) {
-    encerrar();
-  }
-};
+    try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error("Seu navegador não permite acessar a câmera. Abra o link no Chrome atualizado.");
+        }
 
-function encerrar() {
-  if (chamada) {
-    chamada.close();
-    chamada = null;
-  }
+        // O pedido de permissão acontece após o clique da pessoa.
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: "user",
+                width: { ideal: 640 },
+                height: { ideal: 480 }
+            },
+            audio: false
+        });
 
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop());
-    stream = null;
-  }
+        status.textContent = "Câmera autorizada. Conectando ao responsável...";
 
-  botao.disabled = false;
+        peer = new Peer();
+
+        peer.on("open", function() {
+            status.textContent = "Câmera autorizada. Enviando imagem...";
+
+            const chamada = peer.call(sala, stream);
+
+            if (!chamada) {
+                status.textContent = "Não foi possível iniciar a transmissão. Tente novamente.";
+                botao.disabled = false;
+                return;
+            }
+
+            chamada.on("error", function(erro) {
+                status.textContent = "Erro na transmissão. Verifique sua internet e tente novamente.";
+                botao.disabled = false;
+            });
+
+            chamada.on("close", function() {
+                status.textContent = "A conexão foi encerrada.";
+            });
+
+            status.textContent = "Câmera autorizada. Transmissão iniciada. Aguarde a confirmação.";
+        });
+
+        peer.on("error", function(erro) {
+            status.textContent = "Falha na conexão. Verifique a internet e solicite ajuda ao responsável.";
+            botao.disabled = false;
+        });
+
+    } catch (erro) {
+        console.error(erro);
+
+        if (erro.name === "NotAllowedError" || erro.name === "PermissionDeniedError") {
+            status.textContent = "Acesso à câmera negado. Permita a câmera nas configurações do navegador e tente novamente.";
+        } else if (erro.name === "NotFoundError") {
+            status.textContent = "Nenhuma câmera foi encontrada neste aparelho.";
+        } else if (erro.name === "NotReadableError") {
+            status.textContent = "A câmera está sendo usada por outro aplicativo. Feche-o e tente novamente.";
+        } else {
+            status.textContent = erro.message || "Não foi possível acessar a câmera.";
+        }
+
+        botao.disabled = false;
+    }
 }
-
-window.addEventListener("pagehide", () => {
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop());
-  }
-});
 </script>
-
 </body>
 </html>
